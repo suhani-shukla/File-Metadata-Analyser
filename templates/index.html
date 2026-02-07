@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Analyze file metadata including EXIF data, security hashes, and forensic information">
+    <title>File Metadata Analyzer - Upload & Analyze Files</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Skip to main content link for accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="page-wrapper">
+        <main id="main-content" class="main-content">
+            <div class="container">
+                <!-- Page Header -->
+                <header>
+                    <h1>
+                        <span class="icon" aria-hidden="true">📊</span>
+                        <span>File Metadata Analyzer</span>
+                    </h1>
+                    <p class="text-center text-muted mb-lg">
+                        Upload any file to extract detailed metadata, EXIF information, and security hashes
+                    </p>
+                </header>
+
+                <!-- Upload Form -->
+                <form 
+                    action="/upload" 
+                    method="POST" 
+                    enctype="multipart/form-data"
+                    id="upload-form"
+                    aria-label="File upload form"
+                >
+                    <div class="form-group">
+                        <div class="file-input-wrapper">
+                            <label for="file-input" class="file-input-label" id="file-label">
+                                <span class="file-input-icon" aria-hidden="true">📁</span>
+                                <span class="file-input-text">Choose a file or drag it here</span>
+                                <span class="file-input-hint">Supported: Images, Documents, PDFs (Max 10MB)</span>
+                            </label>
+                            
+                            <input 
+                                type="file" 
+                                name="file" 
+                                id="file-input"
+                                required
+                                aria-required="true"
+                                aria-describedby="file-hint"
+                                aria-labelledby="file-label"
+                                accept="image/*,.pdf,.doc,.docx,.txt"
+                            >
+                            
+                            <div id="file-selected" class="file-input-selected" role="status" aria-live="polite">
+                                <strong>Selected:</strong> <span id="selected-filename"></span>
+                            </div>
+                        </div>
+                        
+                        <span id="file-hint" class="visually-hidden">
+                            Choose a file to analyze its metadata. Supported formats include images, PDFs, and documents up to 10 megabytes.
+                        </span>
+                    </div>
+
+                    <button 
+                        type="submit" 
+                        id="upload-btn"
+                        aria-label="Upload file for analysis"
+                    >
+                        <span aria-hidden="true">🔍</span>
+                        <span>Analyze File</span>
+                    </button>
+                </form>
+
+                <!-- Processing indicator (hidden by default) -->
+                {% if filename %}
+                    <!-- Hidden flag for JS -->
+                    <span id="uploaded-filename" data-file="{{ filename }}" class="visually-hidden"></span>
+
+                    <div id="loader" class="show" role="status" aria-live="polite" aria-atomic="true">
+                        <p class="loader-text">
+                            <span class="spinner" aria-hidden="true"></span>
+                            Processing file...
+                        </p>
+                        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div id="progress-fill"></div>
+                        </div>
+                        <p class="visually-hidden" id="progress-status">Processing: 0% complete</p>
+                    </div>
+
+                    <div id="view-details-btn" class="show">
+                        <a href="/details/{{ filename }}" class="btn primary">
+                            <span aria-hidden="true">📄</span>
+                            <span>View File Details</span>
+                        </a>
+                    </div>
+                {% else %}
+                    <div id="loader" role="status" aria-live="polite" aria-atomic="true">
+                        <p class="loader-text">
+                            <span class="spinner" aria-hidden="true"></span>
+                            Processing file...
+                        </p>
+                        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div id="progress-fill"></div>
+                        </div>
+                        <p class="visually-hidden" id="progress-status">Processing: 0% complete</p>
+                    </div>
+
+                    <div id="view-details-btn">
+                        <a href="#" class="btn primary" id="view-details-link">
+                            <span aria-hidden="true">📄</span>
+                            <span>View File Details</span>
+                        </a>
+                    </div>
+                {% endif %}
+
+                <!-- Error message container -->
+                <div id="error-message" class="alert error hidden" role="alert">
+                    <span class="alert-icon" aria-hidden="true">⚠️</span>
+                    <div>
+                        <strong>Upload Failed</strong>
+                        <p id="error-text"></p>
+                    </div>
+                </div>
+
+                <!-- Info section -->
+                <div class="mt-xl">
+                    <details>
+                        <summary style="cursor: pointer; color: var(--color-text-secondary); font-size: var(--font-size-sm);">
+                            What metadata will be extracted?
+                        </summary>
+                        <div style="margin-top: var(--space-md); padding-left: var(--space-md); border-left: 3px solid var(--color-border); color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed);">
+                            <p><strong>Basic Info:</strong> Filename, size, type, upload timestamp</p>
+                            <p><strong>Security:</strong> MD5 and SHA-256 hashes for verification</p>
+                            <p><strong>Images:</strong> EXIF data including camera settings, GPS coordinates, and device information</p>
+                            <p class="mt-sm" style="color: var(--color-warning-dark);">⚠️ Sensitive data like GPS location will be highlighted if found</p>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Metadata Analyzer • Forensics-Style Viewer • <span aria-label="Privacy protected">🔒</span> Secure Analysis</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/upload_progress.js') }}"></script>
+</body>
+</html>

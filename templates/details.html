@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Detailed file metadata analysis including security hashes, EXIF data, and forensic information">
+    <title>File Metadata Details - {{ basic.filename }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Skip to main content link for accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="page-wrapper">
+        <main id="main-content" class="main-content align-start">
+            <div class="container wide">
+                <!-- Page Header -->
+                <header>
+                    <h1>
+                        <span class="icon" aria-hidden="true">📄</span>
+                        <span>File Metadata Details</span>
+                    </h1>
+                    <p class="text-center text-muted mb-xl">
+                        Complete forensic analysis of <strong>{{ basic.filename }}</strong>
+                    </p>
+                </header>
+
+                <!-- Sensitive Data Warning (if applicable) -->
+                {% if sensitive %}
+                <div class="warning" role="alert">
+                    <span class="alert-icon" aria-hidden="true">⚠️</span>
+                    <div>
+                        <strong>Privacy Alert</strong>
+                        <p>This file contains sensitive metadata that may expose device information or personal location data. Highlighted fields below may compromise your privacy if shared publicly.</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- BASIC METADATA -->
+                <article class="card">
+                    <h2>
+                        <span class="icon" aria-hidden="true">📋</span>
+                        <span>Basic Metadata</span>
+                    </h2>
+                    <table class="meta-table" role="table" aria-label="Basic file information">
+                        <tbody>
+                            <tr>
+                                <td role="rowheader">Filename</td>
+                                <td>{{ basic.filename }}</td>
+                            </tr>
+                            <tr>
+                                <td role="rowheader">File Size</td>
+                                <td>
+                                    {{ basic.filesize }} bytes
+                                    <span class="text-muted">
+                                        ({{ "%.2f"|format(basic.filesize / 1024) }} KB)
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td role="rowheader">File Type</td>
+                                <td>{{ basic.filetype }}</td>
+                            </tr>
+                            <tr>
+                                <td role="rowheader">Upload Time</td>
+                                <td>{{ basic.upload_time }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </article>
+
+                <!-- SECURITY METADATA -->
+                <article class="card">
+                    <h2>
+                        <span class="icon" aria-hidden="true">🔒</span>
+                        <span>Security Metadata</span>
+                    </h2>
+                    <p class="text-muted mb-md" style="font-size: var(--font-size-sm);">
+                        Cryptographic hashes for file verification and integrity checking
+                    </p>
+                    <table class="meta-table" role="table" aria-label="Security hashes">
+                        <tbody>
+                            <tr>
+                                <td role="rowheader">
+                                    <abbr title="Message Digest Algorithm 5">MD5</abbr>
+                                </td>
+                                <td>
+                                    <code class="mono" aria-label="MD5 hash">{{ security.md5 }}</code>
+                                    <button 
+                                        class="copy-btn" 
+                                        onclick="copyToClipboard('{{ security.md5 }}', this)"
+                                        aria-label="Copy MD5 hash to clipboard"
+                                        style="margin-left: var(--space-sm); padding: var(--space-xs) var(--space-sm); font-size: var(--font-size-xs); background: var(--color-bg-tertiary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer;"
+                                    >
+                                        📋 Copy
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td role="rowheader">
+                                    <abbr title="Secure Hash Algorithm 256-bit">SHA-256</abbr>
+                                </td>
+                                <td>
+                                    <code class="mono" aria-label="SHA-256 hash">{{ security.sha256 }}</code>
+                                    <button 
+                                        class="copy-btn"
+                                        onclick="copyToClipboard('{{ security.sha256 }}', this)"
+                                        aria-label="Copy SHA-256 hash to clipboard"
+                                        style="margin-left: var(--space-sm); padding: var(--space-xs) var(--space-sm); font-size: var(--font-size-xs); background: var(--color-bg-tertiary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer;"
+                                    >
+                                        📋 Copy
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </article>
+
+                <!-- IMAGE METADATA (EXIF) -->
+                {% if exif %}
+                <article class="card">
+                    <h2>
+                        <span class="icon" aria-hidden="true">🖼️</span>
+                        <span>Image Metadata (EXIF)</span>
+                    </h2>
+                    <p class="text-muted mb-md" style="font-size: var(--font-size-sm);">
+                        Exchangeable Image File Format data embedded by the camera or device
+                    </p>
+                    
+                    <table class="meta-table" role="table" aria-label="EXIF metadata">
+                        <tbody>
+                            {% for key, value in exif.items() %}
+                            <tr class="{% if key in sensitive %}sensitive-row{% endif %}"
+                                {% if key in sensitive %}
+                                aria-describedby="sensitive-warning"
+                                {% endif %}
+                            >
+                                <td role="rowheader">
+                                    {{ key }}
+                                    {% if key in sensitive %}
+                                    <span aria-label="Contains sensitive information" style="color: var(--color-warning-dark); margin-left: var(--space-xs);">⚠️</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ value }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    {% if sensitive %}
+                    <div class="warning mt-lg" id="sensitive-warning" role="note">
+                        <span class="alert-icon" aria-hidden="true">⚠️</span>
+                        <div>
+                            <strong>Sensitive Data Detected</strong>
+                            <p>Highlighted fields ({{ sensitive|length }} found) may expose:</p>
+                            <ul style="margin-top: var(--space-sm); padding-left: var(--space-lg);">
+                                <li>Device make, model, and serial numbers</li>
+                                <li>GPS coordinates revealing location history</li>
+                                <li>Software and firmware versions</li>
+                                <li>Timestamps and user settings</li>
+                            </ul>
+                            <p style="margin-top: var(--space-sm);">
+                                <strong>Recommendation:</strong> Remove this metadata before sharing files publicly using metadata stripping tools.
+                            </p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </article>
+                {% else %}
+                <!-- No EXIF data available -->
+                <article class="card">
+                    <h2>
+                        <span class="icon" aria-hidden="true">🖼️</span>
+                        <span>Image Metadata (EXIF)</span>
+                    </h2>
+                    <div class="alert info" role="status">
+                        <span class="alert-icon" aria-hidden="true">ℹ️</span>
+                        <div>
+                            <p>No EXIF data found in this file. This is normal for:</p>
+                            <ul style="margin-top: var(--space-sm); padding-left: var(--space-lg);">
+                                <li>Non-image files (PDFs, documents, etc.)</li>
+                                <li>Images that have been processed or stripped of metadata</li>
+                                <li>Screenshots and digitally created images</li>
+                            </ul>
+                        </div>
+                    </div>
+                </article>
+                {% endif %}
+
+                <!-- ACTION BUTTONS -->
+                <div class="actions">
+                    <a 
+                        href="/download/{{ basic.filename }}" 
+                        class="btn primary"
+                        aria-label="Download metadata report as PDF"
+                    >
+                        <span aria-hidden="true">📥</span>
+                        <span>Download as PDF</span>
+                    </a>
+
+                    <a 
+                        href="/" 
+                        class="btn secondary"
+                        aria-label="Return to upload page"
+                    >
+                        <span aria-hidden="true">⬅️</span>
+                        <span>Analyze Another File</span>
+                    </a>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Metadata Analyzer • Forensics-Style Viewer • <span aria-label="Privacy protected">🔒</span> Secure Analysis</p>
+        </footer>
+    </div>
+
+    <!-- Copy to clipboard functionality -->
+    <script>
+        function copyToClipboard(text, button) {
+            navigator.clipboard.writeText(text).then(function() {
+                // Success feedback
+                const originalText = button.innerHTML;
+                button.innerHTML = '✓ Copied!';
+                button.style.background = 'var(--color-success-light)';
+                button.style.borderColor = 'var(--color-success)';
+                button.style.color = 'var(--color-success-dark)';
+                
+                // Reset after 2 seconds
+                setTimeout(function() {
+                    button.innerHTML = originalText;
+                    button.style.background = 'var(--color-bg-tertiary)';
+                    button.style.borderColor = 'var(--color-border)';
+                    button.style.color = 'inherit';
+                }, 2000);
+            }).catch(function(err) {
+                // Fallback for older browsers
+                alert('Hash copied: ' + text);
+            });
+        }
+
+        // Keyboard accessibility for copy buttons
+        document.querySelectorAll('.copy-btn').forEach(function(btn) {
+            btn.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.click();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
