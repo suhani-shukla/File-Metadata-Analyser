@@ -1,3 +1,305 @@
+===== app.py =====
+from dotenv import load_dotenv
+load_dotenv()
+
+from flask import Flask
+from config import *
+from models import db
+from routes import register_routes
+
+# ------------------------
+# CREATE FLASK APP
+# ------------------------
+app = Flask(__name__)
+app.config.from_object("config")
+
+# ------------------------
+# INIT DATABASE (PostgreSQL)
+# ------------------------
+db.init_app(app)
+
+# ------------------------
+# REGISTER ALL ROUTES
+# ------------------------
+register_routes(app)
+
+# ------------------------
+# RUN SERVER
+# ------------------------
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+
+===== models.py =====
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
+
+
+class File(db.Model):
+    __tablename__ = "files"
+
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), unique=True, nullable=False)
+    filesize = db.Column(db.Integer)
+    filetype = db.Column(db.String(100))
+    upload_time = db.Column(db.String(50))
+    md5 = db.Column(db.String(64))
+    sha256 = db.Column(db.String(64))
+
+    # VirusTotal fields
+    vt_verdict = db.Column(db.String(20))        # "clean", "suspicious", "malicious"
+    vt_malicious = db.Column(db.Integer)
+    vt_suspicious = db.Column(db.Integer)
+    vt_undetected = db.Column(db.Integer)
+    vt_total = db.Column(db.Integer)
+    vt_analysis_id = db.Column(db.String(128))   # for polling if needed
+
+    metadata_entries = db.relationship(
+        "Metadata", backref="file", cascade="all, delete"
+    )
+    vt_detections = db.relationship(
+        "VTDetection", backref="file", cascade="all, delete"
+    )
+
+
+class Metadata(db.Model):
+    __tablename__ = "metadata"
+
+    id = db.Column(db.Integer, primary_key=True)
+    file_id = db.Column(db.Integer, db.ForeignKey("files.id"))
+    key = db.Column(db.String(255))
+    value = db.Column(db.Text)
+    is_sensitive = db.Column(db.Boolean)
+
+
+class VTDetection(db.Model):
+    __tablename__ = "vt_detections"
+
+    id = db.Column(db.Integer, primary_key=True)
+    file_id = db.Column(db.Integer, db.ForeignKey("files.id"))
+    engine = db.Column(db.String(100))
+    category = db.Column(db.String(20))   # "malicious" or "suspicious"
+    result = db.Column(db.String(255))
+
+===== routes\upload.py =====
+from flask import Blueprint, render_template, request, current_app
+import os
+from datetime import datetime
+from werkzeug.utils import secure_filename
+from models import db, File
+
+upload_bp = Blueprint("upload", __name__)
+
+# Allowed file extensions
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'pdf', 'doc', 'docx', 'txt'}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@upload_bp.route("/")
+def index():
+    return render_template("index.html")
+
+@upload_bp.route("/upload", methods=["POST"])
+def upload():
+    # Check if file is in request
+    if 'file' not in request.files:
+        return "No file part in request", 400
+    
+    file = request.files["file"]
+    
+    # Check if filename is empty
+    if file.filename == "":
+        return "No file selected", 400
+    
+    # Validate file extension
+    if not allowed_file(file.filename):
+        return f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}", 400
+    
+    # Sanitize filename to prevent path traversal attacks
+    original_filename = secure_filename(file.filename)
+    
+    # Handle duplicate filenames by appending timestamp
+    base_name, extension = os.path.splitext(original_filename)
+    filename = original_filename
+    counter = 1
+    
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    os.makedirs(upload_folder, exist_ok=True)
+    file_path = os.path.join(upload_folder, filename)
+    
+    # Check if file already exists and create unique name
+    while os.path.exists(file_path):
+        filename = f"{base_name}_{counter}{extension}"
+        file_path = os.path.join(upload_folder, filename)
+        counter += 1
+    
+    # Save file
+    try:
+        file.save(file_path)
+    except Exception as e:
+        return f"Error saving file: {str(e)}", 500
+    
+    # Check file size after saving
+    file_size = os.path.getsize(file_path)
+    if file_size > MAX_FILE_SIZE:
+        os.remove(file_path)  # Delete the file
+        return f"File too large. Maximum size is {MAX_FILE_SIZE / (1024*1024)}MB", 400
+    
+    # Save to database
+    try:
+        new_file = File(
+            filename=filename,
+            filesize=file_size,
+            filetype=file.content_type,
+            upload_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        
+        db.session.add(new_file)
+        db.session.commit()
+    except Exception as e:
+        # If database save fails, remove the uploaded file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return f"Database error: {str(e)}", 500
+    
+    return render_template("index.html", filename=filename)
+
+===== routes\details.py =====
+from flask import Blueprint, render_template, current_app, abort
+import os
+from models import db, File, Metadata, VTDetection
+from services.hashing import calculate_hashes
+from services.exif import extract_exif_metadata
+from services.virustotal import scan_file, get_analysis, get_report_by_hash
+
+details_bp = Blueprint("details", __name__)
+
+
+@details_bp.route("/details/<path:filename>")
+def details(filename):
+    # Query database for file
+    file = File.query.filter_by(filename=filename).first()
+    if not file:
+        abort(404, description="File not found in database")
+
+    # Use config for upload folder
+    file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+
+    # Check if physical file exists
+    if not os.path.exists(file_path):
+        abort(404, description="Physical file not found. It may have been deleted.")
+
+    try:
+        # Calculate hashes once
+        if not file.md5 or not file.sha256:
+            hashes = calculate_hashes(file_path)
+            file.md5 = hashes["md5"]
+            file.sha256 = hashes["sha256"]
+            db.session.commit()
+
+        # Store EXIF metadata once
+        if not file.metadata_entries:
+            exif, sensitive = extract_exif_metadata(file_path)
+            for key, value in exif.items():
+                entry = Metadata(
+                    file_id=file.id,
+                    key=key,
+                    value=str(value),
+                    is_sensitive=(key in sensitive)
+                )
+                db.session.add(entry)
+            db.session.commit()
+
+        # VirusTotal scan — run once, cache results in DB
+        vt_result = None
+        vt_error = None
+
+        if file.vt_verdict is None:
+            # First try by hash (faster, doesn't consume upload quota)
+            vt_result = get_report_by_hash(file.sha256) if file.sha256 else None
+
+            # If not found by hash, upload the file for a fresh scan
+            if vt_result is None:
+                scan = scan_file(file_path)
+                if "error" in scan:
+                    vt_error = scan["error"]
+                else:
+                    analysis = get_analysis(scan["analysis_id"])
+                    if "error" in analysis:
+                        vt_error = analysis["error"]
+                        # Store analysis_id so user can retry later
+                        file.vt_analysis_id = scan["analysis_id"]
+                    else:
+                        vt_result = analysis
+
+            # Persist result to DB
+            if vt_result:
+                file.vt_verdict = vt_result["verdict"]
+                file.vt_malicious = vt_result["malicious"]
+                file.vt_suspicious = vt_result["suspicious"]
+                file.vt_undetected = vt_result["undetected"]
+                file.vt_total = vt_result["total"]
+
+                for det in vt_result.get("detections", []):
+                    db.session.add(VTDetection(
+                        file_id=file.id,
+                        engine=det["engine"],
+                        category=det["category"],
+                        result=det["result"],
+                    ))
+                db.session.commit()
+
+        else:
+            # Already scanned — load from DB
+            vt_result = {
+                "verdict": file.vt_verdict,
+                "malicious": file.vt_malicious,
+                "suspicious": file.vt_suspicious,
+                "undetected": file.vt_undetected,
+                "total": file.vt_total,
+                "detections": [
+                    {"engine": d.engine, "category": d.category, "result": d.result}
+                    for d in file.vt_detections
+                ],
+            }
+
+    except Exception as e:
+        print(f"Error processing file metadata: {str(e)}")
+        vt_error = "An unexpected error occurred during scanning."
+        vt_result = None
+
+    # Gather metadata for template
+    exif_data = {m.key: m.value for m in file.metadata_entries}
+    sensitive_fields = [m.key for m in file.metadata_entries if m.is_sensitive]
+
+    basic = {
+        "filename": file.filename,
+        "filesize": file.filesize,
+        "filetype": file.filetype,
+        "upload_time": file.upload_time
+    }
+
+    security = {
+        "md5": file.md5 or "Not calculated",
+        "sha256": file.sha256 or "Not calculated"
+    }
+
+    return render_template(
+        "details.html",
+        basic=basic,
+        security=security,
+        exif=exif_data,
+        sensitive=sensitive_fields,
+        vt=vt_result,
+        vt_error=vt_error,
+    )
+
+===== templates\details.html =====
 <!DOCTYPE html>
 <html lang="en">
 <head>
